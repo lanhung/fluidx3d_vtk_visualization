@@ -1,4 +1,4 @@
-1. 开发工具Clion，平台Windows 
+1. 开发工具Clion，平台Windows，toolchains vs2022
 2. 把VTK编译出来之后，配置到环境变量  
 3. 运行本代码需要加上Cmake option,路径根据实际情况修改
 ```
