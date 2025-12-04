@@ -1,4 +1,0 @@
-Cmake option:
--DVTK_DIR="D:/workspace/kits/vtk/vtk95/debug/lib/cmake/vtk-9.5"
-
-配置VTK下的bin到PATH

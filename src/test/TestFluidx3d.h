@@ -8,7 +8,6 @@ public:
     static void visualizePhi();
     static void visualizePhiWithGPU();
     static void visualizePhiOptimized();
-    static void visualizePhiAndU();
 };
 
 

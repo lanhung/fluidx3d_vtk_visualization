@@ -112,7 +112,7 @@ void TestFluidx3d::visualizePhi()
     printf("Starting Optimized Isosurface Rendering...\n");
 
     // 1. 设置路径
-    std::string folderPath = "D:/workspace/project1/c/fluidx3d_vtk_visualization/data/phi";
+    std::string folderPath = "../data/phi";
 
     std::vector<std::string> vtkFiles;
     if (!fs::exists(folderPath)) {
@@ -253,7 +253,7 @@ void TestFluidx3d::visualizePhiWithGPU()
     // ==========================================
     // 1. 扫描文件路径
     // ==========================================
-    std::string folderPath = "D:/workspace/project1/c/fluidx3d_vtk_visualization/data/phi";
+    std::string folderPath = "../data/phi";
     std::vector<std::string> vtkFiles;
 
     if (!fs::exists(folderPath)) {
@@ -371,8 +371,8 @@ void TestFluidx3d::visualizePhiOptimized()
     // ==========================================
     // 1. 资源路径与文件扫描
     // ==========================================
-    std::string folderPath = "D:/workspace/project1/c/fluidx3d_vtk_visualization/data/phi";
-    std::string skyboxPath = "D:/workspace/project/fluid_solid/FluidX3d/skybox/skybox8k.png";
+    std::string folderPath = "../data/phi";
+    std::string skyboxPath = "../images/skybox8k.png";
 
     std::vector<std::string> vtkFiles;
     if (fs::exists(folderPath)) {
@@ -516,237 +516,6 @@ void TestFluidx3d::visualizePhiOptimized()
     renderer->GetActiveCamera()->Zoom(1.1);
 
     interactor->CreateRepeatingTimer(33); // 30 FPS
-    interactor->AddObserver(vtkCommand::TimerEvent, callback);
-
-    renderWindow->Render();
-    interactor->Start();
-}
-
-// 专用于 Phi+U 可视化的上下文
-struct PhiUContext {
-    std::vector<std::string> phiFiles;
-    std::vector<std::string> uFiles;
-    int currentFrame = 0;
-
-    vtkSmartPointer<vtkDataSetReader> phiReader;
-    vtkSmartPointer<vtkDataSetReader> uReader;
-    vtkSmartPointer<vtkFlyingEdges3D> isosurface;
-    vtkRenderWindow* renderWindow = nullptr;
-};
-
-#include <regex> // 需要这个头文件进行数字提取
-
-// --- 辅助函数：提取文件名中的数字进行排序 ---
-bool NaturalSort(const std::string& a, const std::string& b) {
-    // 提取字符串中的数字部分
-    std::regex re("(\\d+)");
-    std::smatch matchA, matchB;
-
-    bool foundA = std::regex_search(a, matchA, re);
-    bool foundB = std::regex_search(b, matchB, re);
-
-    if (foundA && foundB) {
-        // 将提取到的数字字符串转为整数进行比较
-        long long numA = std::stoll(matchA.str());
-        long long numB = std::stoll(matchB.str());
-        if (numA != numB) {
-            return numA < numB;
-        }
-    }
-    // 如果没数字或数字相同，按默认字符串排
-    return a < b;
-}
-
-// 动画回调：加入日志和防消失机制
-void PhiUTimerCallback(vtkObject* caller, unsigned long eventId, void* clientData, void* callData) {
-    auto* ctx = static_cast<PhiUContext*>(clientData);
-    if (ctx->phiFiles.empty() || ctx->uFiles.empty()) return;
-
-    // 1. 获取文件名
-    std::string phiPath = ctx->phiFiles[ctx->currentFrame];
-    std::string uPath = ctx->uFiles[ctx->currentFrame];
-
-    // --- Debug: 打印当前帧，如果这里卡住或文件名乱跳，你就知道原因了 ---
-    // printf("Rendering Frame %d: %s\n", ctx->currentFrame, std::filesystem::path(phiPath).filename().string().c_str());
-
-    // 2. 读取数据
-    ctx->phiReader->SetFileName(phiPath.c_str());
-    ctx->phiReader->Update();
-    ctx->uReader->SetFileName(uPath.c_str());
-    ctx->uReader->Update();
-
-    vtkDataSet* phiData = ctx->phiReader->GetOutput();
-    vtkDataSet* uData = ctx->uReader->GetOutput();
-
-    if (phiData && uData) {
-        // 3. 计算速度
-        vtkDataArray* velocityVectors = uData->GetPointData()->GetVectors();
-        if (!velocityVectors) velocityVectors = uData->GetPointData()->GetArray("data");
-
-        if (velocityVectors) {
-            vtkIdType numPoints = phiData->GetNumberOfPoints();
-            auto magArray = vtkSmartPointer<vtkFloatArray>::New();
-            magArray->SetName("VelocityMagnitude");
-            magArray->SetNumberOfComponents(1);
-            magArray->SetNumberOfTuples(numPoints);
-
-            float* vecPtr = static_cast<float*>(velocityVectors->GetVoidPointer(0));
-            float* magPtr = static_cast<float*>(magArray->GetVoidPointer(0));
-
-            for (vtkIdType i = 0; i < numPoints; ++i) {
-                float vx = vecPtr[3*i];
-                float vy = vecPtr[3*i+1];
-                float vz = vecPtr[3*i+2];
-                magPtr[i] = std::sqrt(vx*vx + vy*vy + vz*vz);
-            }
-            phiData->GetPointData()->AddArray(magArray);
-            phiData->GetPointData()->SetActiveScalars("VelocityMagnitude");
-        }
-
-        // 4. 更新表面
-        ctx->isosurface->SetInputData(phiData);
-    }
-
-    // --- 关键修复: 每一帧都重置相机的“裁剪范围” ---
-    // 这不会改变相机位置，只会确保远近物体都能被看见，防止“消失”
-    ctx->renderWindow->GetRenderers()->GetFirstRenderer()->ResetCameraClippingRange();
-
-    // 5. 渲染
-    ctx->renderWindow->Render();
-    ctx->currentFrame = (ctx->currentFrame + 1) % std::min(ctx->phiFiles.size(), ctx->uFiles.size());
-}
-
-void TestFluidx3d::visualizePhiAndU()
-{
-    printf("Starting Sorted Visualization: Phi + U...\n");
-
-    vtkOutputWindow::SetGlobalWarningDisplay(0);
-    std::string phiFolder = "D:/workspace/project1/c/fluidx3d_vtk_visualization/data/phi";
-    std::string uFolder   = "D:/workspace/project1/c/fluidx3d_vtk_visualization/data/u";
-    std::string skyboxPath = "D:/workspace/project/fluid_solid/FluidX3d/skybox/skybox8k.png";
-
-    // --- 1. 扫描文件 ---
-    std::vector<std::string> phiFiles, uFiles;
-    if (fs::exists(phiFolder)) {
-        for (const auto& entry : fs::directory_iterator(phiFolder))
-            if (entry.path().extension() == ".vtk") phiFiles.push_back(entry.path().string());
-    }
-    if (fs::exists(uFolder)) {
-        for (const auto& entry : fs::directory_iterator(uFolder))
-            if (entry.path().extension() == ".vtk") uFiles.push_back(entry.path().string());
-    }
-
-    // *** 关键修复：使用自然数字排序 ***
-    // 这样 phi_2.vtk 就会排在 phi_10.vtk 前面，而不是后面
-    std::sort(phiFiles.begin(), phiFiles.end(), NaturalSort);
-    std::sort(uFiles.begin(), uFiles.end(), NaturalSort);
-
-    if (phiFiles.empty() || uFiles.empty()) {
-        std::cerr << "Error: No files found!" << std::endl;
-        return;
-    }
-    printf("Found %zu phi files. First: %s\n", phiFiles.size(), fs::path(phiFiles[0]).filename().string().c_str());
-
-    // --- 2. 初始化管线 ---
-    auto phiReader = vtkSmartPointer<vtkDataSetReader>::New();
-    auto uReader = vtkSmartPointer<vtkDataSetReader>::New();
-
-    // 预读第一帧
-    phiReader->SetFileName(phiFiles[0].c_str());
-    phiReader->Update();
-    uReader->SetFileName(uFiles[0].c_str());
-    uReader->Update();
-
-    // --- 3. 等值面 ---
-    auto contour = vtkSmartPointer<vtkFlyingEdges3D>::New();
-    contour->SetInputData(phiReader->GetOutput());
-    contour->SetValue(0, 0.5);
-    contour->ComputeNormalsOn();
-
-    // --- 4. 颜色与材质 ---
-    auto lut = vtkSmartPointer<vtkLookupTable>::New();
-    lut->SetHueRange(0.66, 0.5);
-    lut->SetSaturationRange(1.0, 0.2);
-    lut->SetValueRange(0.3, 1.0);
-    lut->SetTableRange(0.0, 0.15);
-    lut->Build();
-
-    auto mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-    mapper->SetInputConnection(contour->GetOutputPort());
-    mapper->SetLookupTable(lut);
-    mapper->SetScalarRange(0.0, 0.15);
-    mapper->ScalarVisibilityOn();
-
-    auto actor = vtkSmartPointer<vtkActor>::New();
-    actor->SetMapper(mapper);
-
-    vtkProperty* prop = actor->GetProperty();
-    prop->SetInterpolationToPBR();
-    prop->SetMetallic(0.1);
-    prop->SetRoughness(0.05);
-
-    // --- 5. 渲染器 ---
-    auto renderer = vtkSmartPointer<vtkRenderer>::New();
-    if (auto glRenderer = vtkOpenGLRenderer::SafeDownCast(renderer)) {
-        glRenderer->UseSphericalHarmonicsOff();
-    }
-
-    if (fs::exists(skyboxPath)) {
-        auto texReader = vtkSmartPointer<vtkPNGReader>::New();
-        texReader->SetFileName(skyboxPath.c_str());
-        texReader->Update();
-
-        auto texture = vtkSmartPointer<vtkTexture>::New();
-        texture->SetInputConnection(texReader->GetOutputPort());
-        texture->InterpolateOn();
-        texture->MipmapOn();
-
-        auto cubemap = vtkSmartPointer<vtkEquirectangularToCubeMapTexture>::New();
-        cubemap->SetInputTexture(vtkOpenGLTexture::SafeDownCast(texture));
-        cubemap->MipmapOn();
-        cubemap->InterpolateOn();
-
-        renderer->UseImageBasedLightingOn();
-        renderer->SetEnvironmentTexture(cubemap);
-        renderer->SetEnvironmentUp(0, 1, 0);
-
-        auto skybox = vtkSmartPointer<vtkSkybox>::New();
-        skybox->SetTexture(cubemap);
-        renderer->AddActor(skybox);
-    } else {
-        renderer->SetBackground(0.1, 0.1, 0.15);
-    }
-
-    renderer->AddActor(actor);
-
-    // --- 6. 窗口 ---
-    auto renderWindow = vtkSmartPointer<vtkRenderWindow>::New();
-    renderWindow->AddRenderer(renderer);
-    renderWindow->SetSize(1280, 720);
-    renderWindow->SetWindowName("Sorted PBR Fluid Visualization");
-
-    auto interactor = vtkSmartPointer<vtkRenderWindowInteractor>::New();
-    interactor->SetRenderWindow(renderWindow);
-
-    PhiUContext context;
-    context.phiFiles = phiFiles;
-    context.uFiles = uFiles;
-    context.phiReader = phiReader;
-    context.uReader = uReader;
-    context.isosurface = contour;
-    context.renderWindow = renderWindow;
-
-    auto callback = vtkSmartPointer<vtkCallbackCommand>::New();
-    callback->SetCallback(PhiUTimerCallback);
-    callback->SetClientData(&context);
-
-    interactor->Initialize();
-
-    // 初始重置相机
-    renderer->ResetCamera();
-    renderer->GetActiveCamera()->Zoom(1.2);
-
-    interactor->CreateRepeatingTimer(33);
     interactor->AddObserver(vtkCommand::TimerEvent, callback);
 
     renderWindow->Render();
