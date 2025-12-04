@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 4.0)
+cmake_minimum_required(VERSION 3.0)
 project(fluidx3d_vtk_visualization)
 
 set(CMAKE_CXX_STANDARD 20)
